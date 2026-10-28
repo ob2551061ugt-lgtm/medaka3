@@ -109,7 +109,8 @@
   </div>
 
   <div class="panel">
-    <h2>メダカ一覧（クリックで選択・2匹まで）</h2>
+    <h2>メダカ一覧（クリックで選択・複数選べます）</h2>
+    <div class="row"><button class="mini" id="selAllBtn">すべて選択</button><button class="mini" id="selNoneBtn">選択を解除</button><span class="genes" id="selCount"></span></div>
     <div id="eggInfo"></div>
     <div class="fish-list" id="fishList"></div>
   </div>
@@ -671,7 +672,8 @@ function sellSelected() {
   const targets = selectedFish().filter(f => sellPrice(f) > 0);
   if (!targets.length) return;
   const total = targets.reduce((s, f) => s + sellPrice(f), 0);
-  if (!confirm(`${targets.map(f => f.name).join('、')} を ${total}円 で売りますか？`)) return;
+  const names = targets.length > 5 ? `${targets.slice(0, 5).map(f => f.name).join('、')} ほか${targets.length - 5}匹` : targets.map(f => f.name).join('、');
+  if (!confirm(`${names}（${targets.length}匹）を ${total}円 で売りますか？`)) return;
   for (const f of targets) {
     state.money += sellPrice(f);
     addLog(`${f.name}（${pheno(f).name}）を ${sellPrice(f)}円 で売りました。`);
@@ -703,6 +705,7 @@ function spawnCheck(a, b) {
 }
 
 function spawn() {
+  if (selectedFish().length !== 2) return;
   const [a, b] = selectedFish();
   if (spawnCheck(a, b)) return;
   const female = a.sex === '♀' ? a : b, male = a.sex === '♂' ? a : b;
@@ -759,7 +762,7 @@ function removeFish(id) {
 
 function toggleSelect(id) {
   if (selected.includes(id)) selected = selected.filter(s => s !== id);
-  else { selected.push(id); if (selected.length > 2) selected.shift(); }
+  else selected.push(id);
   dirty = true;
 }
 
@@ -961,10 +964,12 @@ function renderUI() {
   tgt.innerHTML = others.map(t => `<option value="${t.id}">→ ${t.name}へ</option>`).join('');
   if (others.some(t => String(t.id) === keep)) tgt.value = keep;
   document.getElementById('moveBtn').disabled = !sel.length;
+  document.getElementById('moveBtn').textContent = sel.length ? `📦 選んだ${sel.length}匹を移す` : '📦 選んだメダカを移す';
   document.getElementById('eggMoveBtn').disabled = !eggs.length;
   document.getElementById('eggMoveBtn').textContent = eggs.length ? `🥚 卵${eggs.length}個を移す` : '🥚 卵を移す';
 
-  const err = spawnCheck(sel[0], sel[1]);
+  const err = sel.length > 2 ? `${sel.length}匹を選択中です。ペアにするときは、オスとメスを1匹ずつ（2匹だけ）選んでください。` : spawnCheck(sel[0], sel[1]);
+  document.getElementById('selCount').textContent = sel.length ? `${sel.length}匹を選択中` : '';
   document.getElementById('breedBtn').disabled = !!err;
   let hint = err || `${sel[0].name} と ${sel[1].name} をペアにして産卵させられます。`;
   if (sickSel) hint += state.inv.medicine > 0 ? '　病気のメダカに薬を使えます。' : '　薬がありません。ショップで買いましょう。';
@@ -1584,6 +1589,8 @@ document.getElementById('skipBtn').onclick = () => {
   simulate(); addLog('時間を6時間進めました（テスト用）。'); save();
 };
 document.getElementById('hatchBtn').onclick = forceHatch;
+document.getElementById('selAllBtn').onclick = () => { selected = aliveIn(state.cur).map(f => f.id); dirty = true; };
+document.getElementById('selNoneBtn').onclick = () => { selected = []; dirty = true; };
 document.getElementById('adultBtn').onclick = forceAdult;
 document.getElementById('resetBtn').onclick = () => {
   if (!confirm('本当に最初からやり直しますか？今のメダカは消えます。')) return;
