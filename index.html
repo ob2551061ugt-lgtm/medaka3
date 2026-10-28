@@ -93,6 +93,8 @@
   </div>
   <div class="controls">
     <button id="skipBtn" class="secondary">⏩ 6時間進める（テスト用）</button>
+    <button id="hatchBtn" class="secondary">🐣 卵を今すぐふ化（テスト用）</button>
+    <button id="adultBtn" class="secondary">🐟 全員を成魚に（テスト用）</button>
   </div>
   <div class="controls" id="moveRow">
     <select id="moveTarget"></select>
@@ -143,7 +145,7 @@
     ・<b>ダルマ</b>は dd の遺伝子を持っていても、卵の時期の水温が高くないとダルマになりません。平均28℃以上で育てると出やすく、低いと半ダルマや普通の体型になります。ダルマは泳ぎが苦手で、卵の受精率も低めです。<br>
     ・<b>白点病</b>は低水温、汚れた水、水温の急変で出やすくなります。薬で治るほか、水温25℃以上・きれいな水で自然に治りやすくなります。31℃以上の高水温は危険です。<br>
     ・両親にない特徴が祖父母や曾祖父母から現れることがあります（<b>隔世遺伝</b>）。一覧の 🌳 を押すと家系図が見られます。<br>
-    ・売値は品種で決まります（野生色30円・青60円・楊貴妃80円・白150円が基本）。ラメ×2.5、ヒレ長×2、ダルマ×3（半ダルマ×1.5）、幹之×2（フルボディ×4）、光×1.5、隔世遺伝×1.5。稚魚は2割、若魚は5割の値段です。<br>
+    ・売値は品種で決まります（野生色30円・青60円・楊貴妃80円・白150円が基本）。ラメ×2.5、ヒレ長×2、ダルマ×3（半ダルマ×1.5）、幹之×2（フルボディ×4）、光×1.5、ブチ×1.5、紅白（紅ブチ）×2.5、三色×4、隔世遺伝×1.5。稚魚は2割、若魚は5割の値段です。<br>
     ・置物は隠れ家になり、1つにつき病気になる確率が1割下がります（最大4割）。
     <h2 style="margin-top:12px">遺伝子の図鑑</h2>
     <div id="geneTable"></div>
@@ -200,13 +202,15 @@ const GENES = [
   { key: 'D', name: 'ダルマ', type: '劣性',       desc: 'dd で体が短く丸くなる。ただし卵の時期の水温が高い（28℃以上）ほど出やすい' },
   { key: 'M', name: '幹之',   type: '不完全優性', desc: 'Mm で背中に青白い光、MM で頭の先まで光る（フルボディ）' },
   { key: 'H', name: '光体型', type: '劣性',       desc: 'hh で背中がお腹のように光り、尾びれがひし形になる' },
+  { key: 'P', name: 'ブチ',   type: '劣性',       desc: 'pp で体に黒いブチ模様が出る。模様の形は1匹ずつ違う' },
+  { key: 'K', name: '紅斑',   type: '劣性',       desc: 'kk で体に紅い模様が出る。白地なら紅白、ブチと合わせると三色' },
 ];
 const GENE_KEYS = GENES.map(g => g.key);
 
 // 'Bb Rr Ll ff DD mm HH' のような文字から遺伝子を作る
 function G(spec) {
   const parts = spec.split(' '), g = {};
-  GENE_KEYS.forEach((k, i) => { g[k] = parts[i].split(''); });
+  GENE_KEYS.forEach((k, i) => { g[k] = parts[i] ? parts[i].split('') : [k, k]; }); // 省略した遺伝子はふつう（優性ホモ）
   return g;
 }
 
@@ -234,10 +238,20 @@ function phenotype(genes, shape = 'normal') {
   const daruma = !has('D', 'D') ? shape : 'normal';   // dd のときだけ体型が変わる
   const miyuki = genes.M.filter(a => a === 'M').length; // 0, 1, 2
   const hikari = !has('H', 'H');
+  const buchi = !has('P', 'P'), beni = !has('K', 'K');
 
   const parts = [];
   if (miyuki) parts.push(miyuki === 2 ? 'フルボディ幹之' : '幹之');
-  if (!(miyuki && base === '青')) parts.push(base);
+  // 体色＋模様の呼び名
+  let colorName = base;
+  if (base === '白' && buchi && beni) colorName = '三色';
+  else if (base === '白' && beni) colorName = '紅白';
+  else if (base === '白' && buchi) colorName = '白ブチ';
+  else if (buchi && beni) colorName += '三色';
+  else if (beni) colorName += '紅ブチ';
+  else if (buchi) colorName += 'ブチ';
+  if (miyuki) colorName = colorName.replace(/^青/, '');
+  if (colorName) parts.push(colorName);
   if (rame) parts.push('ラメ');
   if (hikari) parts.push('光');
   if (fin) parts.push('ヒレ長');
@@ -249,9 +263,20 @@ function phenotype(genes, shape = 'normal') {
   if (daruma !== 'normal') traits.push('ダルマ体型');
   if (miyuki) traits.push('幹之');
   if (hikari) traits.push('光体型');
-  return { base, color, rame, fin, daruma, miyuki, hikari, name: parts.join(''), traits };
+  if (buchi) traits.push('ブチ');
+  if (beni) traits.push('紅斑');
+  return { base, color, rame, fin, daruma, miyuki, hikari, buchi, beni, name: parts.join(''), traits };
 }
 const pheno = f => phenotype(f.genes, f.shape);
+
+// 一覧の色見本（模様も表示）
+function swatchBg(p) {
+  const layers = [];
+  if (p.buchi) layers.push('radial-gradient(circle at 25% 45%, #222 0 2.5px, transparent 3px)', 'radial-gradient(circle at 78% 60%, #222 0 2px, transparent 2.5px)');
+  if (p.beni) layers.push('radial-gradient(ellipse at 52% 50%, #e2502a 0 5px, transparent 5.5px)');
+  layers.push(p.color);
+  return layers.join(', ');
+}
 
 function genesText(genes) { return GENE_KEYS.map(k => genes[k].join('')).join(' '); }
 
@@ -299,11 +324,19 @@ function newGame() {
   state.tanks.push(newTank(1));
   // 最初の4匹は、いろいろな遺伝子を隠し持っている
   makeFish(G('Bb Rr Ll ff Dd mm HH'), '♂', { adult: true, origin: 'start' });
-  makeFish(G('Bb Rr Ll ff Dd mm Hh'), '♀', { adult: true, origin: 'start' });
-  makeFish(G('bb Rr Ll ff DD mm Hh'), '♂', { adult: true, origin: 'start' });
-  makeFish(G('Bb rr Ll ff Dd mm HH'), '♀', { adult: true, origin: 'start' });
+  makeFish(G('Bb Rr Ll ff Dd mm Hh Pp Kk'), '♀', { adult: true, origin: 'start' });
+  makeFish(G('bb Rr Ll ff DD mm Hh Pp KK'), '♂', { adult: true, origin: 'start' });
+  makeFish(G('Bb rr Ll ff Dd mm HH PP Kk'), '♀', { adult: true, origin: 'start' });
   addLog(`メダカを4匹お迎えしました。所持金は${START_MONEY}円です。`);
   save();
+}
+
+function migrate(s) {
+  const fix = g => { for (const k of GENE_KEYS) if (!g[k]) g[k] = [k, k]; };
+  s.fish.forEach(f => fix(f.genes));
+  Object.values(s.archive).forEach(a => fix(a.genes));
+  s.eggs.forEach(e => fix(e.genes));
+  return s;
 }
 
 function save() {
@@ -313,7 +346,7 @@ function save() {
 function load() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) { state = JSON.parse(raw); return; }
+    if (raw) { state = migrate(JSON.parse(raw)); return; }
   } catch (e) { /* 壊れたデータなら新しく始める */ }
   newGame();
 }
@@ -387,6 +420,7 @@ function sellPrice(f) {
   if (p.daruma === 'daruma') price *= 3; else if (p.daruma === 'half') price *= 1.5;
   if (p.miyuki) price *= p.miyuki === 2 ? 4 : 2;
   if (p.hikari) price *= 1.5;
+  if (p.buchi && p.beni) price *= 4; else if (p.beni) price *= 2.5; else if (p.buchi) price *= 1.5;
   if (f.atavism) price *= 1.5;
   const st = stage(f);
   if (st === '稚魚') price *= 0.2; else if (st === '若魚') price *= 0.5;
@@ -500,21 +534,44 @@ function simulateHour(tank, t) {
   if (moldy) addLog(`${tank.name}で無精卵が${moldy}個、白く濁ってだめになりました。`, t);
   if (died) addLog(`${tank.name}で卵が${died}個、うまく育ちませんでした。`, t);
   if (full) addLog(`${tank.name}がいっぱいで、${full}個の卵がふ化できませんでした。`, t);
-  if (hatched.length) {
-    const born = hatched.map(e => hatch(e, tank, t));
-    const counts = {};
-    for (const f of born) { const n = pheno(f).name; counts[n] = (counts[n] || 0) + 1; }
-    addLog(`🐣 ${tank.name}で卵が${born.length}個ふ化しました：${Object.entries(counts).map(([n, c]) => `${n}×${c}`).join('、')}`, t);
-    for (const f of born) if (f.atavism) addLog(`🧬 隔世遺伝！ ${f.name} に、${f.atavism}が現れました。`, t);
-  }
+  if (hatched.length) logHatch(tank, hatched.map(e => hatch(e, tank, t)), t);
   dirty = true;
+}
+
+function logHatch(tank, born, t) {
+  if (!born.length) return;
+  const counts = {};
+  for (const f of born) { const n = pheno(f).name; counts[n] = (counts[n] || 0) + 1; }
+  addLog(`🐣 ${tank.name}で卵が${born.length}個ふ化しました：${Object.entries(counts).map(([n, c]) => `${n}×${c}`).join('、')}`, t);
+  for (const f of born) if (f.atavism) addLog(`🧬 隔世遺伝！ ${f.name} に、${f.atavism}が現れました。`, t);
+}
+
+// テスト用：この水槽の卵を今すぐふ化させる
+function forceHatch() {
+  const tank = curTank(), eggs = state.eggs.filter(e => e.tank === tank.id);
+  if (!eggs.length) { addLog('この水槽には卵がありません。'); return; }
+  const room = Math.max(0, MAX_FISH - aliveIn(tank.id).length);
+  const ok = eggs.filter(e => e.fertile).slice(0, room);
+  state.eggs = state.eggs.filter(e => e.tank !== tank.id);
+  logHatch(tank, ok.map(e => hatch(e, tank, state.gameTime)), state.gameTime);
+  if (eggs.length > ok.length) addLog(`無精卵などで${eggs.length - ok.length}個はふ化しませんでした。`);
+  save();
+}
+
+// テスト用：この水槽のメダカを全員成魚にする
+function forceAdult() {
+  const list = aliveIn(state.cur).filter(f => !isAdult(f));
+  if (!list.length) { addLog('この水槽の稚魚・若魚はいません。'); return; }
+  for (const f of list) f.dd = ADULT_DD;
+  addLog(`${list.length}匹を成魚にしました（テスト用）。`);
+  save();
 }
 
 function hatch(e, tank, t) {
   // ダルマの遺伝子(dd)があっても、卵の時期の水温が高くないとダルマにならない
   let shape = 'normal';
   if (e.genes.D[0] === 'd' && e.genes.D[1] === 'd') {
-    const avg = e.tempSum / Math.max(1, e.hours), r = Math.random();
+    const avg = e.hours ? e.tempSum / e.hours : tank.temp, r = Math.random();
     if (avg >= 28) shape = r < 0.75 ? 'daruma' : 'half';
     else if (avg >= 26) shape = r < 0.4 ? 'daruma' : r < 0.9 ? 'half' : 'normal';
     else shape = r < 0.1 ? 'daruma' : r < 0.6 ? 'half' : 'normal';
@@ -732,6 +789,8 @@ const SHOP = [
   { cat: 'メダカ（成魚・性別はランダム）', id: 'f_miyuki',  name: '🐟 幹之メダカ',         price: 600,  genes: 'Bb rr LL ff DD Mm HH', desc: '背中に青白い光が走る人気品種。' },
   { cat: 'メダカ（成魚・性別はランダム）', id: 'f_fin',     name: '🐟 楊貴妃ヒレ長メダカ', price: 700,  genes: 'bb RR LL Ff DD mm HH', desc: 'ヒレが長く伸びる。' },
   { cat: 'メダカ（成魚・性別はランダム）', id: 'f_rame',    name: '🐟 青ラメメダカ',       price: 700,  genes: 'Bb rr ll ff DD mm HH', desc: 'うろこがキラキラ光る。' },
+  { cat: 'メダカ（成魚・性別はランダム）', id: 'f_kohaku',  name: '🐟 紅白メダカ',         price: 900,  genes: 'bb rr LL ff DD mm HH PP kk', desc: '白い体に紅い模様。模様は1匹ずつ違います。' },
+  { cat: 'メダカ（成魚・性別はランダム）', id: 'f_sanshoku', name: '🐟 三色メダカ',        price: 1500, genes: 'bb rr LL ff DD mm HH pp kk', desc: '白地に紅と黒の模様が入る、錦鯉のような品種。' },
   { cat: 'メダカ（成魚・性別はランダム）', id: 'f_daruma',  name: '🐟 楊貴妃ダルマメダカ', price: 1200, genes: 'bb RR LL ff dd mm HH', shape: 'daruma', desc: '丸く短い体。泳ぎは苦手で繁殖も難しめ。' },
   { cat: '置物（この水槽）', id: 'rock', name: '🪨 石',   price: 150, desc: 'ごつごつした自然石。隠れ家になります。', deco: 'rock' },
   { cat: '置物（この水槽）', id: 'wood', name: '🪵 流木', price: 300, desc: '枝分かれした流木。隠れ家になります。', deco: 'wood' },
@@ -782,7 +841,7 @@ function buy(id) {
 // =====================================================
 function fmt(ms) {
   const h = Math.floor(ms / HOUR);
-  if (h < 1) return '1時間未満';
+  if (h < 1) return `${Math.max(1, Math.ceil(ms / 60000))}分`;
   if (h < 24) return `${h}時間`;
   return `${Math.floor(h / 24)}日${h % 24 ? (h % 24) + '時間' : ''}`;
 }
@@ -814,6 +873,13 @@ function stageHtml(f, tank) {
   const rate = growRate(tank.temp);
   const left = rate ? `成魚まで約${fmt((ADULT_DD - f.dd) / rate * HOUR)}` : '水温が低く成長が止まっています';
   return `${st === '稚魚' ? '🐣' : '🐟'}${st}（${left}）`;
+}
+
+// メスの次の産卵までの時間
+function breedHtml(f) {
+  if (f.dead || f.sex !== '♀' || !isAdult(f)) return '';
+  const rest = f.lastBred !== null ? FEMALE_REST - (state.gameTime - f.lastBred) : 0;
+  return rest > 0 ? `<span class="genes">💤 次の産卵まで あと${fmt(rest)}</span>` : '<span class="st-ok">🥚 産卵できます</span>';
 }
 
 function lineageHtml(f) {
@@ -862,11 +928,11 @@ function renderUI() {
   document.getElementById('fishList').innerHTML = list.length ? list.map(f => {
     const p = pheno(f), price = sellPrice(f);
     return `<div class="fish ${selected.includes(f.id) ? 'selected' : ''} ${f.dead ? 'dead' : ''}" data-id="${f.id}">
-      <div class="swatch ${p.rame ? 'rame' : ''}" style="background:${p.color}"></div>
+      <div class="swatch ${p.rame ? 'rame' : ''}" style="background:${swatchBg(p)}"></div>
       <div class="info">
         <b>${f.name}</b> ${f.sex}　${p.name}　${price ? `<span class="price">売値 ${price}円</span>` : ''}<br>
         <span class="genes">遺伝子 ${genesText(f.genes)}</span><br>
-        ${stageHtml(f, tank)} ${statusHtml(f, tank)}${lineageHtml(f)}
+        ${stageHtml(f, tank)} ${statusHtml(f, tank)} ${breedHtml(f)}${lineageHtml(f)}
       </div>
       <button class="mini" data-tree="${f.id}" title="家系図">🌳</button>
       ${f.dead ? `<button class="small" data-remove="${f.id}">取り出す</button>` : ''}
@@ -931,7 +997,7 @@ function nodeHtml(id) {
   const where = a.status === 'alive' && live && tankOf(live.tank) ? tankOf(live.tank).name : a.status === 'sold' ? '売却済み' : a.status === 'dead' ? '死亡' : '';
   const origin = a.origin === 'shop' ? 'お店' : a.origin === 'start' ? '最初の4匹' : '';
   return `<div class="node ${id === treeRoot ? 'root' : ''}" data-node="${id}">
-    <div class="swatch ${p.rame ? 'rame' : ''}" style="background:${p.color}"></div>
+    <div class="swatch ${p.rame ? 'rame' : ''}" style="background:${swatchBg(p)}"></div>
     <div><b>${a.name}</b> ${a.sex}<br>${p.name}<br><span class="genes">${genesText(a.genes)}</span><br><span class="genes">${[origin, where].filter(Boolean).join('・')}</span></div>
   </div>`;
 }
@@ -984,7 +1050,7 @@ function renderDeco(tank) {
 function renderGeneTable() {
   document.getElementById('geneTable').innerHTML = `<table><tr><th>遺伝子</th><th>特徴</th><th>遺伝の仕方</th><th>説明</th></tr>${
     GENES.map(g => `<tr><td>${g.key}</td><td>${g.name}</td><td>${g.type}</td><td>${g.desc}</td></tr>`).join('')}</table>
-    <div class="genes" style="margin-top:6px">体色：B と R の両方あり＝野生色、B だけ＝青、R だけ＝楊貴妃、両方なし（bb rr）＝白</div>`;
+    <div class="genes" style="margin-top:6px">体色：B と R の両方あり＝野生色、B だけ＝青、R だけ＝楊貴妃、両方なし（bb rr）＝白<br>模様：白地に kk＝紅白、白地に pp kk＝三色、pp＝ブチ</div>`;
 }
 
 // =====================================================
@@ -1251,18 +1317,37 @@ function drawFish(f, v, t) {
   ctx.globalAlpha = ga;
   const g = ctx.createLinearGradient(0, -5 * ky, 0, belly * ky);
   g.addColorStop(0, shade(base, -0.35)); g.addColorStop(0.45, base); g.addColorStop(1, shade(base, 0.5));
+  const bodyPath = () => {
+    ctx.beginPath();
+    M(21, -1.2);
+    Q(18, -4.6, 11, -4.8);    // 頭（上が平ら）
+    L(-6, -4.2);              // まっすぐな背中
+    Q(-12, -3.6, -16.5, -2.2);
+    L(-16.5, 2.2);
+    Q(-10, 3.4, -2, belly);   // お腹
+    Q(9, belly + 0.2, 15, 3.2);
+    Q(19.5, 2, 21, 0.2);      // あご（受け口）
+    ctx.closePath();
+  };
   ctx.fillStyle = g;
-  ctx.beginPath();
-  M(21, -1.2);
-  Q(18, -4.6, 11, -4.8);    // 頭（上が平ら）
-  L(-6, -4.2);              // まっすぐな背中
-  Q(-12, -3.6, -16.5, -2.2);
-  L(-16.5, 2.2);
-  Q(-10, 3.4, -2, belly);   // お腹
-  Q(9, belly + 0.2, 15, 3.2);
-  Q(19.5, 2, 21, 0.2);      // あご（受け口）
-  ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.lineWidth = 0.6; ctx.stroke();
+  bodyPath(); ctx.fill();
+
+  // 模様（ブチ・紅斑）：体の形で切り抜いて描く。形は1匹ずつ違う
+  if ((p.buchi || p.beni) && !f.dead) {
+    ctx.save();
+    bodyPath(); ctx.clip();
+    const blob = (i, color, rmin, rmax) => {
+      const [bx, by] = P(-15 + rnd(f.id, i) * 32, -5 + rnd(f.id, i + 20) * 10);
+      const r = rmin + rnd(f.id, i + 40) * (rmax - rmin);
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.ellipse(bx, by, r, r * (0.55 + rnd(f.id, i + 60) * 0.4), rnd(f.id, i + 80) * 3, 0, Math.PI * 2); ctx.fill();
+    };
+    if (p.beni) for (let i = 0; i < 4; i++) blob(i, p.base === '楊貴妃' ? 'rgba(190,30,20,0.92)' : 'rgba(226,80,42,0.92)', 2.5, 5.5);
+    if (p.buchi) for (let i = 10; i < 16; i++) blob(i, 'rgba(25,25,25,0.85)', 1.2, 3);
+    ctx.restore();
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.lineWidth = 0.6;
+  bodyPath(); ctx.stroke();
 
   // 背中の光沢と側線
   ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,0.22)';
@@ -1498,6 +1583,8 @@ document.getElementById('skipBtn').onclick = () => {
   state.gameTime += 6 * HOUR;
   simulate(); addLog('時間を6時間進めました（テスト用）。'); save();
 };
+document.getElementById('hatchBtn').onclick = forceHatch;
+document.getElementById('adultBtn').onclick = forceAdult;
 document.getElementById('resetBtn').onclick = () => {
   if (!confirm('本当に最初からやり直しますか？今のメダカは消えます。')) return;
   visuals.clear(); selected = []; foods = []; bubbles = []; treeRoot = null;
