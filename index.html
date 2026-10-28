@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>メダカ飼育</title>
+<style>
+  :root {
+    --bg: #eef5f7; --panel: #ffffff; --ink: #23323a; --muted: #6b7c85;
+    --accent: #2a8fbd; --danger: #c0392b; --warn: #d68910; --ok: #27ae60; --gold: #b7860b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif; background: var(--bg); color: var(--ink); }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: .85rem; margin-bottom: 8px; }
+  .dash { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .dash .card { background: var(--panel); border-radius: 10px; padding: 8px 10px; font-size: .85rem; }
+  .dash .label { color: var(--muted); font-size: .75rem; }
+  .dash .value { font-size: 1.1rem; font-weight: bold; }
+  .bar { height: 8px; background: #e3ebef; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+  .bar > div { height: 100%; border-radius: 4px; transition: width .3s; }
+  canvas { width: 100%; border-radius: 12px; display: block; background: #2b6f8f; cursor: pointer; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+  button { font: inherit; border: none; border-radius: 8px; padding: 10px 14px; background: var(--accent); color: #fff; cursor: pointer; }
+  button.secondary { background: #dfe9ee; color: var(--ink); }
+  button.small { padding: 4px 10px; font-size: .8rem; background: #f3d9d6; color: var(--danger); }
+  button:disabled { opacity: .4; cursor: default; }
+  .hint { font-size: .85rem; color: var(--muted); min-height: 1.4em; margin-bottom: 12px; }
+  .panel { background: var(--panel); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+  .panel h2 { font-size: 1rem; margin: 0 0 8px; }
+  .fish-list { display: grid; gap: 6px; }
+  .fish { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; background: #f6f9fa; }
+  .fish.selected { border-color: var(--accent); background: #e8f4fa; }
+  .fish.dead { opacity: .6; }
+  .swatch { width: 30px; height: 14px; border-radius: 7px; border: 1px solid #0003; flex: none; }
+  .swatch.rame { box-shadow: inset 0 0 0 3px #ffffffaa; }
+  .fish .info { flex: 1; font-size: .9rem; line-height: 1.4; }
+  .genes { font-family: monospace; color: var(--muted); font-size: .8rem; }
+  .price { color: var(--gold); font-size: .8rem; }
+  .st-ok { color: var(--ok); } .st-hungry { color: var(--warn); font-weight: bold; } .st-dead, .st-sick { color: var(--danger); font-weight: bold; }
+  .shop { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+  .item { border: 1px solid #e1eaee; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+  .item .name { font-weight: bold; }
+  .item .desc { font-size: .8rem; color: var(--muted); flex: 1; }
+  .item button { padding: 6px 10px; font-size: .85rem; }
+  .log { font-size: .85rem; color: var(--muted); max-height: 160px; overflow: auto; margin: 0; padding-left: 1.2em; }
+  .help { font-size: .85rem; color: var(--muted); line-height: 1.7; }
+  .help table { border-collapse: collapse; margin-top: 6px; }
+  .help td, .help th { border: 1px solid #dde6ea; padding: 2px 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>メダカ飼育</h1>
+  <div class="sub" id="status">読み込み中…</div>
+
+  <div class="dash">
+    <div class="card"><div class="label">所持金</div><div class="value" id="dMoney"></div></div>
+    <div class="card"><div class="label">水質</div><div class="value" id="dWater"></div><div class="bar"><div id="dWaterBar"></div></div></div>
+    <div class="card"><div class="label">餌の残り</div><div class="value" id="dFood"></div></div>
+    <div class="card"><div class="label">薬の残り</div><div class="value" id="dMed"></div></div>
+  </div>
+
+  <canvas id="tank"></canvas>
+
+  <div class="controls">
+    <button id="feedBtn">🍚 餌をあげる</button>
+    <button id="waterBtn">💧 水換え</button>
+    <button id="breedBtn" disabled>💞 交配する</button>
+    <button id="medBtn" disabled>💊 薬を使う</button>
+    <button id="sellBtn" disabled>💰 売る</button>
+  </div>
+  <div class="hint" id="hint"></div>
+
+  <div class="panel">
+    <h2>メダカ一覧（クリックで選択・2匹まで）</h2>
+    <div class="fish-list" id="fishList"></div>
+  </div>
+
+  <div class="panel">
+    <h2>ショップ</h2>
+    <div class="shop" id="shop"></div>
+  </div>
+
+  <div class="panel">
+    <h2>できごと</h2>
+    <ul class="log" id="log"></ul>
+  </div>
+
+  <div class="panel help">
+    <h2>遊び方</h2>
+    ・餌をあげないまま <b>24時間</b> たつと空腹、<b>72時間</b> たつと死んでしまいます。ページを閉じている間も時間は進みます。<br>
+    ・水はメダカの数が多いほど早く汚れます。死んだメダカを放っておくとさらに汚れます。餌のあげすぎも水を汚します。こまめに水換えしましょう。<br>
+    ・水が汚いと<b>白点病</b>にかかりやすくなり、病気はほかのメダカにうつります。薬を使わないと <b>48時間</b> で死んでしまいます。<br>
+    ・オスとメスを1匹ずつ選んで「交配する」と、1〜3匹の稚魚が生まれます。稚魚は生後24時間で大人になります。<br>
+    ・育てたメダカは売ってお金にできます。珍しい品種ほど高く売れます（ラメは2.5倍、稚魚は3割の値段）。<br>
+    ・体色は2つの遺伝子 <b>B</b>（黒い色素）と <b>R</b>（黄色い色素）で決まり、<b>ll</b> を持つとラメが出ます。大文字が1つでもあればその性質が出ます。
+    <table>
+      <tr><th></th><th>R あり</th><th>rr</th></tr>
+      <tr><th>B あり</th><td>野生色 30円</td><td>青 60円</td></tr>
+      <tr><th>bb</th><td>楊貴妃 80円</td><td>白 150円</td></tr>
+    </table>
+    <div class="controls">
+      <button id="skipBtn" class="secondary">⏩ 6時間進める（テスト用）</button>
+      <button id="resetBtn" class="secondary">最初からやり直す</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// =====================================================
+//  設定（ここの数字を変えると遊び方が変わります）
+// =====================================================
+const HOUR = 60 * 60 * 1000;      // 1時間（ミリ秒）
+const TIME_SCALE = 1;             // 時間の速さ。1 = 現実と同じ、60 = 現実の1分がゲーム内の1時間
+const HUNGRY_AFTER = 24 * HOUR;   // 餌をあげてから空腹になるまで
+const DIE_AFTER = 72 * HOUR;      // 餌をあげてから死ぬまで
+const ADULT_AGE = 24 * HOUR;      // 稚魚が大人になるまで
+const BREED_COOLDOWN = 12 * HOUR; // 交配したあと次に交配できるまで
+const SICK_DIE_AFTER = 48 * HOUR; // 病気になってから死ぬまで
+const MAX_FISH = 30;              // 水槽に入る最大数
+const SAVE_KEY = 'medaka-save-v1';
+
+// 水質（100 = きれい、0 = 真っ黒）
+const WATER_CHANGE = 50;          // 水換え1回で回復する量
+const DIRT_BASE = 0.3;            // 1時間に何もしなくても汚れる量
+const DIRT_PER_FISH = 0.25;       // 生きているメダカ1匹あたり、1時間に汚れる量
+const DIRT_PER_DEAD = 1.5;        // 死んだメダカ1匹あたり、1時間に汚れる量
+const DIRT_FEED = 2;              // 餌をあげるたびに汚れる量
+const DIRT_OVERFEED = 6;          // 満腹なのに餌をあげたときの追加の汚れ
+
+// 病気（1時間ごとにかかる確率）
+const SICK_BASE = 0.001;          // 水がきれいなとき
+const SICK_PER_SICK = 0.01;       // 病気の仲間1匹ごとに増える確率（うつる）
+
+// 売値（品種ごとの基本の値段）
+const BASE_PRICE = { '野生色': 30, '青': 60, '楊貴妃': 80, '白': 150 };
+
+// ショップの品物
+const SHOP = [
+  { id: 'food',     name: '🍚 餌（30回分）',   price: 100, desc: '餌やりに必要です。',
+    buy: () => { state.inv.food += 30; } },
+  { id: 'medicine', name: '💊 白点病の薬',     price: 150, desc: '病気のメダカを選んで使うと治ります。',
+    buy: () => { state.inv.medicine += 1; } },
+  { id: 'plants',   name: '🌿 水草',           price: 200, desc: '水が汚れにくくなります（2割減）。', once: 'plants',
+    buy: () => { state.upgrades.plants = true; resize(); } },
+  { id: 'filter',   name: '⚙️ ろ過フィルター', price: 600, desc: '水が汚れにくくなります（半分）。', once: 'filter',
+    buy: () => { state.upgrades.filter = true; } },
+  { id: 'wild',     name: '🐟 野生色メダカ',   price: 100, desc: '大人のメダカ。性別はランダム。',
+    fish: () => ({ B: ['B','b'], R: ['R','r'], L: ['L','l'] }) },
+  { id: 'white',    name: '🐟 白メダカ',       price: 300, desc: '大人のメダカ。性別はランダム。ラメの遺伝子も隠し持っています。',
+    fish: () => ({ B: ['b','b'], R: ['r','r'], L: ['L','l'] }) },
+];
+
+// =====================================================
+//  遺伝のしくみ
+// =====================================================
+// 遺伝子はペアで持つ。例: { B: ['B','b'], R: ['R','r'], L: ['L','l'] }
+// 新しい遺伝子を増やしたいときは、ここと phenotype() に追加する
+const GENE_KEYS = ['B', 'R', 'L'];
+
+function randomPick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+
+// 両親から1つずつランダムに受け継ぐ
+function inherit(mother, father) {
+  const genes = {};
+  for (const k of GENE_KEYS) {
+    genes[k] = [randomPick(mother.genes[k]), randomPick(father.genes[k])].sort(); // 大文字が先になる
+  }
+  return genes;
+}
+
+// 遺伝子から見た目（品種）を決める
+function phenotype(genes) {
+  const hasB = genes.B.includes('B');
+  const hasR = genes.R.includes('R');
+  const rame = genes.L[0] === 'l' && genes.L[1] === 'l';
+  let base, color;
+  if (hasB && hasR)       { base = '野生色'; color = '#7d6b47'; }
+  else if (hasB && !hasR) { base = '青';     color = '#8ea8bf'; }
+  else if (!hasB && hasR) { base = '楊貴妃'; color = '#f07c1e'; }
+  else                    { base = '白';     color = '#f4f1e8'; }
+  return { base, name: (rame ? 'ラメ' : '') + base, color, rame };
+}
+
+function genesText(genes) {
+  return GENE_KEYS.map(k => genes[k].join('')).join(' ');
+}
+
+// =====================================================
+//  データ（保存されるもの）
+// =====================================================
+let state;
+
+function makeFish(genes, sex, born) {
+  const f = {
+    id: state.nextId,
+    name: 'メダカ#' + state.nextId,
+    sex,                    // '♂' か '♀'
+    genes,
+    born,                   // 生まれたゲーム内時刻
+    lastFed: state.gameTime,// 最後に餌を食べたゲーム内時刻
+    lastBred: null,
+    sick: null,             // 病気なら { since: かかった時刻 }
+    dead: false,
+  };
+  state.nextId++;
+  state.fish.push(f);
+  return f;
+}
+
+function newGame() {
+  state = {
+    gameTime: 0, lastReal: Date.now(), lastSim: 0, nextId: 1, fish: [], log: [],
+    money: 500, water: 100,
+    inv: { food: 30, medicine: 1 },
+    upgrades: { filter: false, plants: false },
+  };
+  const adult = -ADULT_AGE; // 最初から大人
+  makeFish({ B: ['B','b'], R: ['R','r'], L: ['L','l'] }, '♂', adult);
+  makeFish({ B: ['B','b'], R: ['R','r'], L: ['L','l'] }, '♀', adult);
+  makeFish({ B: ['b','b'], R: ['R','r'], L: ['L','l'] }, '♂', adult);
+  makeFish({ B: ['B','b'], R: ['r','r'], L: ['L','l'] }, '♀', adult);
+  for (const f of state.fish) f.lastFed = -12 * HOUR; // お迎え時は少しお腹がすいている
+  addLog('メダカを4匹お迎えしました。所持金は500円です。');
+  save();
+}
+
+// 古いセーブデータに新しい項目を足す
+function migrate(s) {
+  s.money ??= 500;
+  s.water ??= 100;
+  s.inv ??= { food: 30, medicine: 1 };
+  s.upgrades ??= { filter: false, plants: false };
+  s.lastSim ??= s.gameTime;
+  for (const f of s.fish) f.sick ??= null;
+  return s;
+}
+
+function save() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) { /* 保存できない環境では何もしない */ }
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) { state = migrate(JSON.parse(raw)); return; }
+  } catch (e) { /* 壊れたデータなら新しく始める */ }
+  newGame();
+}
+
+// 現実の時間の経過をゲーム内時間に反映する（閉じていた間の分も含む）
+function tickTime() {
+  const now = Date.now();
+  state.gameTime += (now - state.lastReal) * TIME_SCALE;
+  state.lastReal = now;
+}
+
+// =====================================================
+//  ルール
+// =====================================================
+const age = f => state.gameTime - f.born;
+const isAdult = f => age(f) >= ADULT_AGE;
+const sinceFed = f => state.gameTime - f.lastFed;
+const isHungry = f => !f.dead && sinceFed(f) >= HUNGRY_AFTER;
+const aliveFish = () => state.fish.filter(f => !f.dead);
+const selectedFish = () => selected.map(id => state.fish.find(f => f.id === id)).filter(Boolean);
+
+function waterInfo(w) {
+  if (w >= 60) return { label: 'きれい', color: 'var(--ok)' };
+  if (w >= 30) return { label: '汚れ気味', color: 'var(--warn)' };
+  return { label: '汚い！', color: 'var(--danger)' };
+}
+
+function sellPrice(f) {
+  if (f.dead || f.sick) return 0;
+  const p = phenotype(f.genes);
+  let price = BASE_PRICE[p.base];
+  if (p.rame) price *= 2.5;
+  if (!isAdult(f)) price *= 0.3;
+  return Math.round(price);
+}
+
+function kill(f, msg, t) {
+  f.dead = true;
+  f.sick = null;
+  addLog(`${f.name} は${msg}`, t);
+}
+
+// 1時間ずつ世界を進める（閉じていた間の分もまとめて計算する）
+function simulate() {
+  let steps = 0;
+  while (state.gameTime - state.lastSim >= HOUR && steps < 24 * 60) {
+    state.lastSim += HOUR;
+    steps++;
+    simulateHour(state.lastSim);
+  }
+  if (state.gameTime - state.lastSim >= HOUR) state.lastSim = state.gameTime; // 長すぎる留守は打ち切り
+}
+
+function simulateHour(t) {
+  const alive = aliveFish();
+  const deadCount = state.fish.length - alive.length;
+
+  // 水の汚れ
+  let dirt = DIRT_BASE + DIRT_PER_FISH * alive.length + DIRT_PER_DEAD * deadCount;
+  if (state.upgrades.filter) dirt *= 0.5;
+  if (state.upgrades.plants) dirt *= 0.8;
+  state.water = clamp(state.water - dirt, 0, 100);
+
+  const sickCount = alive.filter(f => f.sick).length;
+  for (const f of alive) {
+    if (t - f.lastFed >= DIE_AFTER) { kill(f, '餌をもらえず死んでしまいました…', t); continue; }
+
+    if (f.sick) {
+      if (t - f.sick.since >= SICK_DIE_AFTER) { kill(f, '白点病で死んでしまいました…', t); continue; }
+      if (state.water >= 80 && Math.random() < 0.02) {
+        f.sick = null;
+        addLog(`${f.name} の白点病が自然に治りました。`, t);
+      }
+    } else {
+      let risk = SICK_BASE;
+      if (state.water < 60) risk *= 4;
+      if (state.water < 30) risk *= 4;
+      if (t - f.lastFed >= HUNGRY_AFTER) risk *= 2;
+      risk += SICK_PER_SICK * sickCount;
+      if (Math.random() < risk) {
+        f.sick = { since: t };
+        addLog(`${f.name} が白点病にかかりました！薬で治してあげましょう。`, t);
+      }
+    }
+  }
+  dirty = true;
+}
+
+function feed() {
+  const alive = aliveFish();
+  if (alive.length === 0) { addLog('生きているメダカがいません。'); return; }
+  if (state.inv.food <= 0) { addLog('餌がありません。ショップで買いましょう。'); return; }
+  state.inv.food--;
+
+  // ほとんどのメダカが満腹なら、食べ残しで水が汚れる
+  const full = alive.filter(f => sinceFed(f) < 6 * HOUR).length;
+  let dirt = DIRT_FEED;
+  if (full > alive.length / 2) {
+    dirt += DIRT_OVERFEED;
+    addLog('餌のあげすぎで食べ残しが出て、水が汚れました。');
+  }
+  state.water = clamp(state.water - dirt, 0, 100);
+
+  for (const f of alive) f.lastFed = state.gameTime;
+  for (let i = 0; i < 14; i++) {
+    foods.push({ x: 40 + Math.random() * (W - 80), y: 8, vy: 8 + Math.random() * 6, dx: (Math.random() - 0.5) * 4, t: 0, floatT: 4 + Math.random() * 6, seed: Math.random() * 6 });
+  }
+  addLog('餌をあげました。');
+  save();
+}
+
+function changeWater() {
+  state.water = clamp(state.water + WATER_CHANGE, 0, 100);
+  for (let i = 0; i < 25; i++) bubbles.push({ x: Math.random() * W, y: H - 30, r: 1 + Math.random() * 3, vy: 40 + Math.random() * 60 });
+  addLog('水換えをしました。');
+  save();
+}
+
+function useMedicine() {
+  const targets = selectedFish().filter(f => !f.dead && f.sick);
+  for (const f of targets) {
+    if (state.inv.medicine <= 0) { addLog('薬が足りません。ショップで買いましょう。'); break; }
+    state.inv.medicine--;
+    f.sick = null;
+    addLog(`${f.name} に薬を使いました。白点病が治りました！`);
+  }
+  save();
+}
+
+function sellSelected() {
+  const targets = selectedFish().filter(f => sellPrice(f) > 0);
+  if (!targets.length) return;
+  const total = targets.reduce((s, f) => s + sellPrice(f), 0);
+  if (!confirm(`${targets.map(f => f.name).join('、')} を ${total}円 で売りますか？`)) return;
+  for (const f of targets) {
+    state.money += sellPrice(f);
+    addLog(`${f.name}（${phenotype(f.genes).name}）を ${sellPrice(f)}円 で売りました。`);
+    removeFish(f.id);
+  }
+  save();
+}
+
+function buy(id) {
+  const item = SHOP.find(i => i.id === id);
+  if (!item || state.money < item.price) return;
+  if (item.once && state.upgrades[item.once]) return;
+  if (item.fish && aliveFish().length >= MAX_FISH) { addLog('水槽がいっぱいです。'); return; }
+  state.money -= item.price;
+  if (item.fish) {
+    const f = makeFish(item.fish(), Math.random() < 0.5 ? '♂' : '♀', state.gameTime - ADULT_AGE);
+    addLog(`${f.name}（${phenotype(f.genes).name}・${f.sex}）を ${item.price}円 で買いました。`);
+  } else {
+    item.buy();
+    addLog(`${item.name.replace(/^\S+\s/, '')} を ${item.price}円 で買いました。`);
+  }
+  dirty = true;
+  save();
+}
+
+function canBreed(a, b) {
+  if (!a || !b) return 'オスとメスを1匹ずつ選ぶと交配できます。';
+  if (a.dead || b.dead) return '死んだメダカは交配できません。';
+  if (a.sex === b.sex) return 'オスとメスを1匹ずつ選んでください。';
+  for (const f of [a, b]) {
+    if (f.sick) return `${f.name} は病気なので交配できません。`;
+    if (!isAdult(f)) return `${f.name} はまだ稚魚です（あと ${fmt(ADULT_AGE - age(f))} で大人）。`;
+    if (f.lastBred !== null && state.gameTime - f.lastBred < BREED_COOLDOWN)
+      return `${f.name} は休憩中です（あと ${fmt(BREED_COOLDOWN - (state.gameTime - f.lastBred))}）。`;
+  }
+  if (aliveFish().length >= MAX_FISH) return '水槽がいっぱいです。';
+  return null;
+}
+
+function breed() {
+  const [a, b] = selected.map(id => state.fish.find(f => f.id === id));
+  if (canBreed(a, b)) return;
+  const mother = a.sex === '♀' ? a : b;
+  const father = a.sex === '♂' ? a : b;
+  const count = Math.min(1 + Math.floor(Math.random() * 3), MAX_FISH - aliveFish().length);
+  const mv = getVisual(mother);
+  for (let i = 0; i < count; i++) {
+    const child = makeFish(inherit(mother, father), Math.random() < 0.5 ? '♂' : '♀', state.gameTime);
+    const v = getVisual(child);
+    v.x = mv.x + (Math.random() - 0.5) * 30; v.y = mv.y + (Math.random() - 0.5) * 20;
+    addLog(`${child.name}（${phenotype(child.genes).name}・${child.sex}）が生まれました！`);
+  }
+  mother.lastBred = father.lastBred = state.gameTime;
+  selected = [];
+  dirty = true;
+  save();
+}
+
+function removeFish(id) {
+  state.fish = state.fish.filter(f => f.id !== id);
+  visuals.delete(id);
+  selected = selected.filter(s => s !== id);
+  dirty = true;
+  save();
+}
+
+function toggleSelect(id) {
+  if (selected.includes(id)) selected = selected.filter(s => s !== id);
+  else { selected.push(id); if (selected.length > 2) selected.shift(); }
+  dirty = true;
+}
+
+// =====================================================
+//  表示（一覧・ショップ・ログ）
+// =====================================================
+let selected = [];
+let dirty = true;
+
+function fmt(ms) {
+  const h = Math.floor(ms / HOUR);
+  if (h < 1) return '1時間未満';
+  if (h < 24) return `${h}時間`;
+  return `${Math.floor(h / 24)}日${h % 24 ? (h % 24) + '時間' : ''}`;
+}
+
+function dayLabel(t = state.gameTime) {
+  return `${Math.floor(t / (24 * HOUR)) + 1}日目`;
+}
+
+function addLog(msg, t) {
+  state.log.unshift(`[${dayLabel(t)}] ${msg}`);
+  state.log = state.log.slice(0, 50);
+  dirty = true;
+}
+
+function statusHtml(f) {
+  if (f.dead) return '<span class="st-dead">死亡</span>';
+  const parts = [];
+  if (f.sick) parts.push(`<span class="st-sick">白点病！あと${fmt(SICK_DIE_AFTER - (state.gameTime - f.sick.since))}で死んでしまう</span>`);
+  if (isHungry(f)) parts.push(`<span class="st-hungry">空腹！あと${fmt(DIE_AFTER - sinceFed(f))}で死んでしまう</span>`);
+  if (!parts.length) parts.push(`<span class="st-ok">元気</span>（空腹まで ${fmt(HUNGRY_AFTER - sinceFed(f))}）`);
+  return parts.join('　');
+}
+
+function renderUI() {
+  const alive = aliveFish();
+  document.getElementById('status').textContent =
+    `${dayLabel()}　生きているメダカ：${alive.length}匹` + (TIME_SCALE !== 1 ? `　（時間の速さ ×${TIME_SCALE}）` : '');
+
+  // ダッシュボード
+  const wi = waterInfo(state.water);
+  document.getElementById('dMoney').textContent = `${state.money.toLocaleString()}円`;
+  document.getElementById('dWater').innerHTML = `<span style="color:${wi.color}">${wi.label}</span>（${Math.round(state.water)}）`;
+  const bar = document.getElementById('dWaterBar');
+  bar.style.width = state.water + '%'; bar.style.background = wi.color;
+  document.getElementById('dFood').textContent = `${state.inv.food}回分`;
+  document.getElementById('dMed').textContent = `${state.inv.medicine}個`;
+
+  // メダカ一覧
+  const list = [...state.fish].sort((a, b) => a.dead - b.dead || a.id - b.id);
+  document.getElementById('fishList').innerHTML = list.map(f => {
+    const p = phenotype(f.genes);
+    const price = sellPrice(f);
+    return `<div class="fish ${selected.includes(f.id) ? 'selected' : ''} ${f.dead ? 'dead' : ''}" data-id="${f.id}">
+      <div class="swatch ${p.rame ? 'rame' : ''}" style="background:${p.color}"></div>
+      <div class="info">
+        <b>${f.name}</b> ${f.sex}　${p.name}　${isAdult(f) ? '' : '🐣稚魚'}　${price ? `<span class="price">売値 ${price}円</span>` : ''}<br>
+        <span class="genes">遺伝子 ${genesText(f.genes)}</span>　${statusHtml(f)}
+      </div>
+      ${f.dead ? `<button class="small" data-remove="${f.id}">取り出す</button>` : ''}
+    </div>`;
+  }).join('');
+
+  // ショップ
+  document.getElementById('shop').innerHTML = SHOP.map(item => {
+    const owned = item.once && state.upgrades[item.once];
+    const disabled = owned || state.money < item.price;
+    return `<div class="item">
+      <div class="name">${item.name}</div>
+      <div class="desc">${item.desc}</div>
+      <button data-buy="${item.id}" ${disabled ? 'disabled' : ''}>${owned ? '設置済み' : `${item.price}円で買う`}</button>
+    </div>`;
+  }).join('');
+
+  document.getElementById('log').innerHTML = state.log.map(l => `<li>${l}</li>`).join('');
+
+  // ボタン
+  const sel = selectedFish();
+  document.getElementById('feedBtn').textContent = `🍚 餌をあげる（残り${state.inv.food}）`;
+  document.getElementById('feedBtn').disabled = state.inv.food <= 0;
+  const sickSel = sel.filter(f => !f.dead && f.sick).length;
+  document.getElementById('medBtn').disabled = !(sickSel && state.inv.medicine > 0);
+  const sellTotal = sel.reduce((s, f) => s + sellPrice(f), 0);
+  document.getElementById('sellBtn').disabled = sellTotal === 0;
+  document.getElementById('sellBtn').textContent = sellTotal ? `💰 売る（${sellTotal}円）` : '💰 売る';
+
+  const [a, b] = sel;
+  const err = canBreed(a, b);
+  document.getElementById('breedBtn').disabled = !!err;
+  let hint = err || `${a.name} と ${b.name} を交配できます。`;
+  if (sickSel) hint += state.inv.medicine > 0 ? '　病気のメダカに薬を使えます。' : '　薬がありません。ショップで買いましょう。';
+  document.getElementById('hint').textContent = hint;
+}
+
+// =====================================================
+//  水槽の描画（Canvas）
+// =====================================================
+const canvas = document.getElementById('tank');
+const ctx = canvas.getContext('2d');
+let W = 800, H = 450;
+let plants = [], pebbles = [];
+let foods = [], bubbles = [];
+const visuals = new Map(); // 泳ぐ位置など（保存しない）
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = canvas.clientWidth;
+  H = Math.max(260, Math.round(W * 0.56));
+  canvas.style.height = H + 'px';
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const plantCount = state && state.upgrades.plants ? Math.max(6, Math.floor(W / 70)) : 2;
+  plants = Array.from({ length: plantCount }, () => ({
+    x: Math.random() * (W - 70), h: 60 + Math.random() * H * 0.35, phase: Math.random() * 6, hue: 100 + Math.random() * 40,
+  }));
+  pebbles = Array.from({ length: Math.floor(W / 12) }, () => ({
+    x: Math.random() * W, y: H - 22 + Math.random() * 20, r: 2 + Math.random() * 4, c: 160 + Math.random() * 60,
+  }));
+}
+
+function getVisual(f) {
+  let v = visuals.get(f.id);
+  if (!v) {
+    v = { x: 40 + Math.random() * (W - 80), y: 40 + Math.random() * (H - 120), vx: 0, vy: 0, dir: 1, phase: Math.random() * 6, target: null };
+    visuals.set(f.id, v);
+  }
+  return v;
+}
+
+function updateMotion(dt) {
+  const bottom = H - 34;
+  for (const fd of foods) {
+    fd.t += dt;
+    if (fd.t > fd.floatT) { // しばらく水面に浮いてから、ゆっくり沈む
+      if (fd.y < bottom) { fd.y = Math.min(bottom, fd.y + fd.vy * dt); fd.x += fd.dx * dt; }
+    } else {
+      fd.x += Math.sin(fd.t * 1.3 + fd.seed) * 3 * dt; // 水面でゆらゆら
+    }
+  }
+  foods = foods.filter(fd => fd.t < 40);
+
+  for (const b of bubbles) b.y -= b.vy * dt;
+  bubbles = bubbles.filter(b => b.y > 0);
+  if (state.upgrades.filter && Math.random() < dt * 4) {
+    bubbles.push({ x: W - 32 + Math.random() * 8, y: 100, r: 1 + Math.random() * 2, vy: 30 + Math.random() * 20 });
+  }
+
+  const alive = aliveFish();
+  for (const f of state.fish) {
+    const v = getVisual(f);
+    v.amp ??= 0.3; v.pause ??= 0; v.tilt ??= 0; v.spd ??= 1;
+    if (f.dead) { // 死んだメダカは水面に浮かぶ
+      v.y = Math.max(14, v.y - 20 * dt);
+      v.x += v.vx * dt; v.vx *= 0.97;
+      v.amp = 0;
+      continue;
+    }
+    let speed = (isHungry(f) ? 16 : 40) * (isAdult(f) ? 1 : 0.8);
+    if (f.sick) speed *= 0.6;
+
+    // 目標地点：餌があれば一番近い餌、なければ気ままに
+    let tx, ty, foodIdx = -1, chasing = false;
+    if (foods.length) {
+      let best = Infinity;
+      foods.forEach((fd, i) => { const d = Math.hypot(fd.x - v.x, fd.y - v.y); if (d < best) { best = d; foodIdx = i; } });
+      tx = foods[foodIdx].x; ty = foods[foodIdx].y;
+      chasing = true; v.pause = 0; speed *= 1.4;
+    } else {
+      if (!v.target || Math.random() < 0.002) v.target = pickTarget(f, alive, bottom);
+      tx = v.target.x; ty = v.target.y;
+    }
+    const dx = tx - v.x, dy = ty - v.y, dist = Math.hypot(dx, dy) || 1;
+
+    // スッと泳いでは止まる（メダカらしい動き）
+    let wantVx = 0, wantVy = 0;
+    if (v.pause > 0) {
+      v.pause -= dt; // その場でホバリング
+      if (v.pause <= 0) { v.target = pickTarget(f, alive, bottom); v.spd = 0.6 + Math.random() * 0.7; }
+    } else {
+      const s = speed * (chasing ? 1 : v.spd);
+      wantVx = dx / dist * s; wantVy = dy / dist * s * 0.6;
+      if (!chasing && dist < 12) v.pause = 0.4 + Math.random() * 2.2;
+    }
+    const k = Math.min(1, dt * 2.5);
+    v.vx += (wantVx - v.vx) * k;
+    v.vy += (wantVy - v.vy) * k;
+    v.x = clamp(v.x + v.vx * dt, 20, W - 24);
+    v.y = clamp(v.y + v.vy * dt, 14, bottom - 6);
+
+    const vel = Math.hypot(v.vx, v.vy);
+    if (Math.abs(v.vx) > 4) v.dir = Math.sign(v.vx);
+    v.amp += (Math.min(1, vel / 30) + 0.12 - v.amp) * Math.min(1, dt * 3); // 速いほど大きく体をくねらせる
+    v.phase += dt * (3 + vel * 0.35);                                        // 速いほど尾を速く振る
+    const tiltT = clamp(Math.atan2(v.vy, Math.abs(v.vx) + 6), -0.35, 0.35); // 上下に泳ぐときは体を傾ける
+    v.tilt += (tiltT - v.tilt) * Math.min(1, dt * 3);
+
+    if (foodIdx >= 0 && dist < 10) foods.splice(foodIdx, 1); // 餌を食べる
+  }
+}
+
+function pickTarget(f, alive, bottom) {
+  // ときどき仲間の近くへ（ゆるく群れる）
+  const others = alive.filter(o => o !== f);
+  if (others.length && Math.random() < 0.35) {
+    const ov = getVisual(randomPick(others));
+    return { x: clamp(ov.x + (Math.random() - 0.5) * 80, 30, W - 30), y: clamp(ov.y + (Math.random() - 0.5) * 40, 20, bottom - 20) };
+  }
+  // メダカは水面近くを泳ぐのが好き
+  return { x: 30 + Math.random() * (W - 60), y: 20 + Math.pow(Math.random(), 1.8) * (bottom - 40) };
+}
+
+function drawBackground(t) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#5bb3d0'); g.addColorStop(1, '#1b4a60');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  // 水面のきらめき
+  ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.fillRect(0, 0, W, 5);
+
+  // 光のすじ
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  for (let i = 0; i < 4; i++) {
+    const x = (i + 0.5) * W / 4 + Math.sin(t * 0.3 + i) * 20;
+    ctx.beginPath(); ctx.moveTo(x - 20, 0); ctx.lineTo(x + 20, 0); ctx.lineTo(x + 80, H); ctx.lineTo(x + 20, H); ctx.fill();
+  }
+
+  // 水草
+  for (const p of plants) {
+    ctx.strokeStyle = `hsl(${p.hue},45%,32%)`; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    for (let j = -1; j <= 1; j++) {
+      const sway = Math.sin(t * 0.8 + p.phase + j) * 14;
+      ctx.beginPath();
+      ctx.moveTo(p.x + j * 7, H - 20);
+      ctx.quadraticCurveTo(p.x + j * 12 + sway * 0.5, H - 20 - p.h * 0.5, p.x + j * 9 + sway, H - 20 - p.h * (0.8 + j * 0.1));
+      ctx.stroke();
+    }
+  }
+
+  // ろ過フィルター
+  if (state.upgrades.filter) {
+    ctx.fillStyle = '#4a5a62'; ctx.fillRect(W - 44, 0, 32, 100);
+    ctx.fillStyle = '#6d8089'; ctx.fillRect(W - 40, 4, 24, 20);
+  }
+
+  // 底砂
+  ctx.fillStyle = '#c9b48a'; ctx.fillRect(0, H - 24, W, 24);
+  for (const s of pebbles) {
+    ctx.fillStyle = `rgb(${s.c},${s.c - 20},${s.c - 50})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+// 色を明るく(+)・暗く(-)する
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const target = amt < 0 ? 0 : 255, p = Math.abs(amt);
+  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map(x => Math.round(x + (target - x) * p));
+  return `rgb(${r},${g},${b})`;
+}
+function rgba(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+// メダカを横から見た姿で描く（頭が +x 方向、体長 約50）
+function drawFish(f, v, t) {
+  const p = phenotype(f.genes);
+  const grow = Math.min(1, age(f) / ADULT_AGE);
+  const sc = 0.45 + 0.55 * grow;
+  const male = f.sex === '♂';
+
+  if (selected.includes(f.id)) {
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.arc(v.x, v.y, 30 * sc + 4, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#fff'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(`${f.name} ${f.sex}`, v.x, v.y - 30 * sc - 10);
+  }
+
+  const base = f.dead ? '#c8c8c0' : p.color;
+  const amp = f.dead ? 0 : (v.amp ?? 0.3);
+  // 体のくねり：頭はほとんど動かず、尾にいくほど大きく揺れる
+  const bend = x => { const w = clamp((12 - x) / 42, 0, 1); return Math.sin(v.phase + x * 0.15) * 4.5 * amp * w * w; };
+  const P = (x, y) => [x, y + bend(x)];
+  const M = (x, y) => ctx.moveTo(...P(x, y));
+  const L = (x, y) => ctx.lineTo(...P(x, y));
+  const Q = (cx, cy, x, y) => ctx.quadraticCurveTo(...P(cx, cy), ...P(x, y));
+  const belly = male ? 4.8 : 6.0; // メスはお腹がふっくら
+
+  ctx.save();
+  ctx.translate(v.x, v.y);
+  if (f.dead) ctx.scale(v.dir * sc, -sc); // 死んだら裏返し
+  else { ctx.scale(v.dir * sc, sc); ctx.rotate(v.tilt || 0); }
+  const ga = 0.55 + 0.45 * grow; // 稚魚は透き通っている
+  const finFill = rgba(base, 0.42);
+
+  // ひれ：半透明の膜＋すじ（鰭条）
+  const fin = (outline, rays) => {
+    ctx.globalAlpha = ga;
+    ctx.fillStyle = finFill; ctx.beginPath(); outline(); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(40,40,40,0.25)'; ctx.lineWidth = 0.5; ctx.beginPath();
+    for (const [x1, y1, x2, y2] of rays) { M(x1, y1); L(x2, y2); }
+    ctx.stroke();
+  };
+
+  // 尾びれ（切れ込みのない、うちわ型）
+  const tailRays = [];
+  for (let i = 0; i <= 7; i++) {
+    const ey = -7.5 + i * 15 / 7;
+    tailRays.push([-16.5, ey * 0.25, -29.5 - 1.8 * (1 - (ey / 7.5) ** 2), ey]);
+  }
+  fin(() => { M(-16, -2.2); Q(-22, -6.5, -29.5, -7.5); Q(-32, 0, -29.5, 7.5); Q(-22, 6.5, -16, 2.2); }, tailRays);
+
+  // 背びれ（体のかなり後ろにある。オスは大きく、切れ込みがある）
+  const dh = male ? -9 : -7.2;
+  fin(() => { M(-5.5, -4.2); L(-7.5, dh); L(-9.5, dh + 1.2); L(-12.8, dh + 0.4); L(-12, -3.8); },
+      [[-6.5, -4.2, -7.6, dh], [-8.5, -4.1, -9.6, dh + 1.2], [-10.5, -4, -11.6, dh + 0.7]]);
+
+  // しりびれ（お腹に沿って長い。オスは大きな平行四辺形）
+  const ad = male ? 5 : 3.2;
+  const analRays = [];
+  for (let i = 0; i <= 8; i++) {
+    const x = 1.5 - i * 1.9, by = belly - 0.4 - i * (belly - 3.2) / 8;
+    analRays.push([x, by, x - 2.2, by + ad * (1 - i * 0.03)]);
+  }
+  fin(() => { M(2, belly - 0.4); L(-0.8, belly + ad); L(-17.5, 3.2 + ad * 0.75); L(-14.5, 3); }, analRays);
+
+  // 体（背中は濃く、お腹は明るい）
+  ctx.globalAlpha = ga;
+  const g = ctx.createLinearGradient(0, -5, 0, belly);
+  g.addColorStop(0, shade(base, -0.35));
+  g.addColorStop(0.45, base);
+  g.addColorStop(1, shade(base, 0.5));
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  M(21, -1.2);
+  Q(18, -4.6, 11, -4.8);    // 頭（上が平ら）
+  L(-6, -4.2);              // まっすぐな背中
+  Q(-12, -3.6, -16.5, -2.2);
+  L(-16.5, 2.2);
+  Q(-10, 3.4, -2, belly);   // お腹
+  Q(9, belly + 0.2, 15, 3.2);
+  Q(19.5, 2, 21, 0.2);      // あご（受け口）
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.lineWidth = 0.6; ctx.stroke();
+
+  // 背中の光沢と側線
+  ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.beginPath(); M(12, -4); L(-12, -3.3); ctx.stroke();
+  ctx.lineWidth = 0.6; ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+  ctx.beginPath(); M(9, 0.2); Q(-3, 0.8, -15.5, 0); ctx.stroke();
+
+  // えらぶた
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.7;
+  ctx.beginPath(); M(9.2, -3.4); Q(7.4, 0, 9.6, 3.2); ctx.stroke();
+
+  // 口（上向き）
+  ctx.strokeStyle = shade(base, -0.5); ctx.lineWidth = 0.7;
+  ctx.beginPath(); M(21, -0.5); L(19, -0.2); ctx.stroke();
+
+  // 胸びれ（止まっていても、いつもパタパタ動かしている）
+  const flap = f.dead ? 0 : Math.sin(t * 9 + f.id) * 0.5;
+  ctx.save();
+  ctx.translate(...P(8.5, 1.4)); ctx.rotate(2.6 + flap);
+  ctx.fillStyle = finFill; ctx.beginPath(); ctx.ellipse(3, 0, 4, 1.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // 目（大きくて、銀色の虹彩）
+  const [ex, ey] = P(13.4, -1.7);
+  const eg = ctx.createRadialGradient(ex - 0.8, ey - 0.8, 0.5, ex, ey, 3.2);
+  eg.addColorStop(0, '#f2f4f5'); eg.addColorStop(1, '#8e999f');
+  ctx.fillStyle = eg; ctx.beginPath(); ctx.arc(ex, ey, 3.2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = f.dead ? '#777' : '#0a0a0a';
+  ctx.beginPath(); ctx.arc(ex + 0.4, ey, 2, 0, Math.PI * 2); ctx.fill();
+  if (!f.dead) {
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.beginPath(); ctx.arc(ex + 1.1, ey - 0.8, 0.6, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // ラメ（背中のうろこがキラッと光る）
+  if (p.rame && !f.dead) {
+    for (let i = 0; i < 9; i++) {
+      const a = Math.max(0, Math.sin(t * 2.5 + i * 2.1 + f.id * 1.3));
+      if (a < 0.3) continue;
+      const [sx, sy] = P(8 - i * 2.2, -3.4 + ((i * 5 + f.id) % 3) * 0.7);
+      const r = 0.6 + a * 0.8;
+      ctx.fillStyle = `rgba(255,255,255,${a})`;
+      ctx.beginPath(); ctx.moveTo(sx - r * 1.6, sy); ctx.lineTo(sx, sy - 0.35); ctx.lineTo(sx + r * 1.6, sy); ctx.lineTo(sx, sy + 0.35); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx, sy, 0.5, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // 白点病の白い点
+  if (f.sick) {
+    ctx.fillStyle = '#ffffff';
+    const spots = [[-8, -3], [-3, 2], [3, -2], [-12, 1], [6, 3], [-1, -3.5], [-14, -1], [-22, 3], [-20, -3], [-9, 6]];
+    for (const [x, y] of spots) { const [sx, sy] = P(x, y); ctx.beginPath(); ctx.arc(sx, sy, 0.9, 0, Math.PI * 2); ctx.fill(); }
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function draw(t) {
+  drawBackground(t);
+  for (const fd of foods) {
+    ctx.fillStyle = '#8a5a2b'; ctx.beginPath(); ctx.arc(fd.x, fd.y, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,230,190,0.5)'; ctx.beginPath(); ctx.arc(fd.x - 0.6, fd.y - 0.6, 0.7, 0, Math.PI * 2); ctx.fill();
+  }
+  for (const f of state.fish) drawFish(f, getVisual(f), t);
+
+  // 泡
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 1;
+  for (const b of bubbles) { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke(); }
+
+  // 水の濁り（水質が悪いほど緑っぽく濁る）
+  const murk = (1 - state.water / 100) * 0.55;
+  if (murk > 0.01) { ctx.fillStyle = `rgba(85,105,35,${murk})`; ctx.fillRect(0, 0, W, H); }
+}
+
+// =====================================================
+//  操作
+// =====================================================
+document.getElementById('feedBtn').onclick = feed;
+document.getElementById('waterBtn').onclick = changeWater;
+document.getElementById('breedBtn').onclick = breed;
+document.getElementById('medBtn').onclick = useMedicine;
+document.getElementById('sellBtn').onclick = sellSelected;
+document.getElementById('skipBtn').onclick = () => {
+  state.gameTime += 6 * HOUR;
+  simulate(); addLog('時間を6時間進めました（テスト用）。'); save();
+};
+document.getElementById('resetBtn').onclick = () => {
+  if (!confirm('本当に最初からやり直しますか？今のメダカは消えます。')) return;
+  visuals.clear(); selected = []; foods = []; bubbles = [];
+  newGame();
+  resize();
+};
+
+document.getElementById('fishList').addEventListener('click', e => {
+  const rm = e.target.closest('[data-remove]');
+  if (rm) { removeFish(Number(rm.dataset.remove)); return; }
+  const row = e.target.closest('.fish');
+  if (row) toggleSelect(Number(row.dataset.id));
+});
+
+document.getElementById('shop').addEventListener('click', e => {
+  const btn = e.target.closest('[data-buy]');
+  if (btn) buy(btn.dataset.buy);
+});
+
+// 水槽のメダカをクリックしても選べる
+canvas.addEventListener('click', e => {
+  const r = canvas.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  let best = null, bestD = 28;
+  for (const f of state.fish) {
+    const v = getVisual(f), d = Math.hypot(v.x - x, v.y - y);
+    if (d < bestD) { bestD = d; best = f; }
+  }
+  if (best) toggleSelect(best.id);
+});
+
+window.addEventListener('resize', resize);
+document.addEventListener('visibilitychange', save);
+window.addEventListener('beforeunload', save);
+
+// =====================================================
+//  メインループ
+// =====================================================
+load();
+resize();
+tickTime();
+simulate();
+
+let lastFrame = performance.now(), simTimer = 0, uiTimer = 0, saveTimer = 0;
+function frame(ts) {
+  const dt = Math.min(0.05, (ts - lastFrame) / 1000);
+  lastFrame = ts;
+  tickTime();
+  simTimer += dt;  if (simTimer > 1) { simTimer = 0; simulate(); }
+  uiTimer += dt;   if (dirty || uiTimer > 5) { uiTimer = 0; dirty = false; renderUI(); }
+  saveTimer += dt; if (saveTimer > 5) { saveTimer = 0; save(); }
+  updateMotion(dt);
+  draw(ts / 1000);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
