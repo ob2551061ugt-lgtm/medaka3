@@ -3632,7 +3632,7 @@ void main(){
   vec4 wp = M * vec4(p, 1.0);
 #ifdef SWAY
   float hh = clamp((wp.y - uSway.w) * uSwayDir / uSwayH, 0.0, 1.0);
-  float k = pow(hh, 1.5) * uSway.x;
+  float k = pow(clamp(hh, 0.0, 1.0), 1.5) * uSway.x;
   wp.x += sin(uTime * uSway.y + uSway.z + wp.y * 0.12) * k;
   wp.z += cos(uTime * uSway.y * 0.83 + uSway.z * 1.7 + wp.y * 0.09) * k * 0.7;
 #endif
@@ -3672,10 +3672,12 @@ float causticLayer(vec2 uv, float time){
   for (int n = 0; n < 4; n++){
     float t = time * (1.0 - (3.5 / float(n + 1)));
     i = p + vec2(cos(t - i.x) + sin(t + i.y), sin(t - i.y) + cos(t + i.x));
-    c += 1.0 / length(vec2(p.x / (sin(i.x + t) / inten), p.y / (cos(i.y + t) / inten)));
+    float sx = sin(i.x + t), cy = cos(i.y + t);
+    sx = abs(sx) < 1e-4 ? 1e-4 : sx; cy = abs(cy) < 1e-4 ? 1e-4 : cy;
+    c += min(1.0 / max(length(vec2(p.x * inten / sx, p.y * inten / cy)), 1e-3), 40.0);
   }
-  c /= 4.0; c = 1.17 - pow(c, 1.4);
-  return pow(abs(c), 8.0);
+  c = clamp(c / 4.0, 0.0, 10.0); c = 1.17 - pow(c, 1.4);
+  return pow(min(abs(c), 1.6), 8.0);
 }
 float caustics(vec3 P){
   vec2 uv = P.xz * 0.045 + vec2(P.y * 0.004);
@@ -3694,7 +3696,8 @@ float shadowAt(vec3 P, vec3 N){
 }
 
 vec2 boxHit(vec3 ro, vec3 rd){
-  vec3 inv = 1.0 / rd;
+  vec3 rs = vec3(abs(rd.x) < 1e-6 ? 1e-6 : rd.x, abs(rd.y) < 1e-6 ? 1e-6 : rd.y, abs(rd.z) < 1e-6 ? 1e-6 : rd.z);
+  vec3 inv = 1.0 / rs;
   vec3 t0 = (uBoxMin - ro) * inv, t1 = (uBoxMax - ro) * inv;
   vec3 tmin = min(t0, t1), tmax = max(t0, t1);
   return vec2(max(max(tmin.x, tmin.y), tmin.z), min(min(tmax.x, tmax.y), tmax.z));
@@ -3749,7 +3752,7 @@ struct Mat { vec3 albedo; float rough; float metal; float spec; float trans; vec
 
 float D_GGX(float NdH, float a){ float a2 = a * a; float d = NdH * NdH * (a2 - 1.0) + 1.0; return a2 / (3.14159 * d * d + 1e-5); }
 float V_Smith(float NdV, float NdL, float a){ float k = a * 0.5; return 0.25 / ((NdV * (1.0 - k) + k) * (NdL * (1.0 - k) + k)); }
-vec3 F_Schlick(vec3 F0, float c){ return F0 + (1.0 - F0) * pow(1.0 - c, 5.0); }
+vec3 F_Schlick(vec3 F0, float c){ return F0 + (1.0 - F0) * pow(clamp(1.0 - c, 0.0, 1.0), 5.0); }
 
 vec3 lightIt(vec3 P, vec3 N, vec3 V, Mat m){
   bool uw = underWater(P);
@@ -3764,7 +3767,7 @@ vec3 lightIt(vec3 P, vec3 N, vec3 V, Mat m){
   float a = max(0.02, m.rough * m.rough);
   vec3 F0 = mix(vec3(0.04 * m.spec), m.albedo, m.metal);
   vec3 F = F_Schlick(F0, VdH);
-  vec3 spec = D_GGX(NdH, a) * V_Smith(NdV, NdL, a) * F;
+  vec3 spec = min(D_GGX(NdH, a) * V_Smith(NdV, NdL, a), 40.0) * F;   // 浅い角度で値が大きくなりすぎないように
   vec3 kd = (1.0 - F) * (1.0 - m.metal);
   vec3 col = (kd * m.albedo * ca + spec * 3.14159) * lc * NdL;
   // 薄い組織を通る光（ヒレ・葉・稚魚）
@@ -3936,7 +3939,7 @@ void main(){
   }
 #endif
 #ifdef MAT_BUBBLE
-  float fr = pow(1.0 - abs(dot(N, V)), 2.5);
+  float fr = pow(clamp(1.0 - abs(dot(N, V)), 0.0, 1.0), 2.5);
   vec3 R = reflect(-V, N);
   vec3 bc = envWater(R, 0.05) * 1.6 + vec3(1.0) * pow(max(dot(R, uLightDir), 0.0), 60.0) * 6.0 * length(uLightCol);
   outColor = vec4(waterFog(bc, vW) * uOutScale, clamp(fr * 0.9 + 0.05, 0.0, 1.0)); return;
@@ -3985,7 +3988,7 @@ void main(){
   outColor = vec4(waterFog(bc, vW) * uOutScale, 1.0); return;
 #endif
 #ifdef MAT_GLASS
-  float fr = 0.04 + 0.96 * pow(1.0 - abs(dot(N, V)), 5.0);
+  float fr = 0.04 + 0.96 * pow(clamp(1.0 - abs(dot(N, V)), 0.0, 1.0), 5.0);
   vec3 R = reflect(-V, N);
   vec3 bc = envRoom(R, 0.02) * fr + uColor * uTrans;
   float al = clamp(fr * 0.9 + uAlpha, 0.0, 1.0);
@@ -4004,7 +4007,7 @@ void main(){
   vec3 col = lightIt(vW, N, V, m);
   col = waterFog(col, vW);
   if (uOutdoor > 0.5 && !underWater(vW)) col = mix(col, uSkyHor * 0.85, 1.0 - exp(-length(vW - uCamPos) * 0.0011));
-  outColor = vec4(col * uOutScale, alpha);
+  outColor = vec4(min(col * uOutScale, vec3(60000.0)), alpha);
 #endif
 }`;
 
@@ -4065,7 +4068,7 @@ void main(){
     col = mix(col, col * vec3(0.55, 0.85, 0.35), uGreen);
     al = mix(0.55, 0.9, tir);
   } else {
-    float fr = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
+    float fr = 0.02 + 0.98 * pow(clamp(1.0 - max(dot(N, V), 0.0), 0.0, 1.0), 5.0);
     vec3 R = reflect(-V, N);
     vec3 glint = uSunCol * pow(max(dot(R, uLightDir), 0.0), 1400.0) * 60.0;   // 日差しのきらめき
     vec3 env = envRoom(R, 0.03);
@@ -4079,7 +4082,7 @@ void main(){
     col = env * fr * 1.3 + glint + uScatterCol * 0.6 + vec3(0.06, 0.1, 0.03) * uGreen * length(uAmbTop) * 3.0;
     al = clamp(fr + 0.05 + uGreen * 0.75 + min(1.0, length(glint)) * 0.6, 0.0, 1.0);
   }
-  outColor = vec4(waterFog(col, vW - vec3(0.0, 0.01, 0.0)) * uOutScale, al);
+  outColor = vec4(min(waterFog(col, vW - vec3(0.0, 0.01, 0.0)) * uOutScale, vec3(60000.0)), al);
 }`;
 
 // 水中に差し込む光の筋
@@ -4090,7 +4093,7 @@ void main(){
   float x = vUv.x, y = vUv.y;
   float edge = smoothstep(0.0, 0.35, x) * smoothstep(1.0, 0.65, x);
   float flick = 0.6 + 0.4 * vnoise(vec2(x * 6.0 + uTime * 0.4 + vData.x * 10.0, y * 1.5 - uTime * 0.15));
-  float fade = pow(y, 1.6);
+  float fade = pow(clamp(y, 0.0, 1.0), 1.6);
   vec3 col = uColor * edge * flick * fade * uAlpha;
   outColor = vec4(waterFog(col, vW) * uOutScale, 1.0);
 }`;
@@ -4127,7 +4130,9 @@ out vec2 vUv;
 void main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); vUv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
 const SH_BRIGHT_FRAG = `
 in vec2 vUv; out vec4 o; uniform sampler2D uTex; uniform float uThresh, uInScale;
-void main(){ vec3 c = texture(uTex, vUv).rgb * uInScale; float l = max(max(c.r, c.g), c.b); o = vec4(c * smoothstep(uThresh, uThresh * 2.0, l), 1.0); }`;
+float fix1(float x){ return (floatBitsToUint(x) & 0x7f800000u) == 0x7f800000u ? 0.0 : clamp(x, 0.0, 64.0); }
+vec3 fixc(vec3 c){ return vec3(fix1(c.r), fix1(c.g), fix1(c.b)); }
+void main(){ vec3 c = fixc(texture(uTex, vUv).rgb) * uInScale; float l = max(max(c.r, c.g), c.b); o = vec4(c * smoothstep(uThresh, uThresh * 2.0, l), 1.0); }`;
 const SH_BLUR_FRAG = `
 in vec2 vUv; out vec4 o; uniform sampler2D uTex; uniform vec2 uDir;
 void main(){
@@ -4141,8 +4146,10 @@ in vec2 vUv; out vec4 o;
 uniform sampler2D uTex, uBloom; uniform float uExposure, uBloomK, uInScale, uTime;
 vec3 aces(vec3 x){ return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float fix1(float x){ return (floatBitsToUint(x) & 0x7f800000u) == 0x7f800000u ? 0.0 : clamp(x, 0.0, 64.0); }
+vec3 fixc(vec3 c){ return vec3(fix1(c.r), fix1(c.g), fix1(c.b)); }
 void main(){
-  vec3 c = texture(uTex, vUv).rgb * uInScale + texture(uBloom, vUv).rgb * uBloomK;
+  vec3 c = fixc(texture(uTex, vUv).rgb) * uInScale + fixc(texture(uBloom, vUv).rgb) * uBloomK;
   c = aces(c * uExposure);
   c = pow(c, vec3(1.0 / 2.2));
   vec2 q = vUv - 0.5; c *= 1.0 - dot(q, q) * 0.55;
