@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>メダカ飼育</title>
 <style>
   :root {
@@ -82,13 +82,23 @@
   #tank3d { position: absolute; left: 0; top: 0; width: 100%; border-radius: 12px; display: none; background: #0b0f10; }
   #view #tank { position: relative; }
   #viewHint { margin-top: 4px; }
+  /* 全画面表示 */
+  #fsBtns { position: absolute; right: 8px; top: 8px; display: flex; gap: 6px; z-index: 4; }
+  #fsBtns button, #zoomBtns button { width: 40px; height: 40px; border-radius: 50%; border: none; background: rgba(0,0,0,.45); color: #fff; font-size: 20px; line-height: 40px; padding: 0; touch-action: manipulation; }
+  #fsBtns .fsOnly { display: none; }
+  #fsNote { display: none; position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 4; background: rgba(0,0,0,.55); color: #fff; font-size: .85rem; padding: 6px 12px; border-radius: 16px; pointer-events: none; white-space: nowrap; }
+  body.fs { overflow: hidden; }
+  body.fs #view { position: fixed; inset: 0; z-index: 1000; background: #000; }
+  body.fs #view canvas { border-radius: 0; }
+  body.fs #fsBtns { top: calc(8px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); }
+  body.fs #zoomBtns { bottom: calc(8px + env(safe-area-inset-bottom)); right: calc(8px + env(safe-area-inset-right)); }
+  body.fs #fsBtns .fsOnly { display: inline-block; }
   #zoomBtns { position: absolute; right: 8px; bottom: 8px; display: none; flex-direction: column; gap: 6px; z-index: 3; }
-  #zoomBtns button { width: 40px; height: 40px; border-radius: 50%; border: none; background: rgba(0,0,0,.45); color: #fff; font-size: 20px; line-height: 40px; padding: 0; touch-action: manipulation; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>メダカ飼育</h1>
+  <h1 style="user-select:none;-webkit-user-select:none;cursor:default">メダカ飼育 <span id="immortalBadge" title="押すとOFF" style="display:none;font-size:.55em;background:#fff3c4;color:#8a6a00;border-radius:12px;padding:2px 10px;vertical-align:middle;cursor:pointer">✨ 不死モード</span></h1>
   <div class="sub" id="status">読み込み中…</div>
   <div class="tabs" id="tabs"></div>
 
@@ -99,7 +109,7 @@
     <div class="card"><div class="label">酸素</div><div class="value" id="dO2"></div></div>
   </div>
 
-  <div id="view"><canvas id="tank3d"></canvas><canvas id="tank"></canvas><div id="zoomBtns"><button data-z="in" aria-label="拡大">＋</button><button data-z="out" aria-label="縮小">－</button><button data-z="reset" aria-label="元の視点" style="font-size:16px">⟲</button></div></div>
+  <div id="view"><canvas id="tank3d"></canvas><canvas id="tank"></canvas><div id="fsBtns"><button class="fsOnly" id="fsFeed" aria-label="餌をあげる" style="font-size:18px">🍚</button><button id="fsBtn" aria-label="全画面">⛶</button></div><div id="fsNote">📱 スマホを横向きにすると大きく表示されます</div><div id="zoomBtns"><button data-z="in" aria-label="拡大">＋</button><button data-z="out" aria-label="縮小">－</button><button data-z="reset" aria-label="元の視点" style="font-size:16px">⟲</button></div></div>
   <div class="note" id="viewHint"></div>
 
   <div class="controls">
@@ -811,12 +821,15 @@ function stepTank(tank, t) {
     f.hunger += hungerRate(temp) * (outdoor && temp >= 15 ? 0.6 : 1) * dt;
     if (young) f.hunger = Math.max(0, f.hunger - (tank.algae / 100 * 2.0 + (outdoor && temp >= 15 ? 0.3 : 0)) * dt);
 
-    // 死
+    // 死（裏技「不死モード」のときは死なない）
+    if (state.immortal) f.hunger = Math.min(f.hunger, (young ? STARVE_AT * 0.3 : STARVE_AT) - 1);
+    if (!state.immortal) {
     if (f.hunger >= (young ? STARVE_AT * 0.3 : STARVE_AT)) { kill(f, null, t); young ? report.fryStarve++ : report.starve++; continue; }
     if (g < STAGES[0].upto && f.hunger > 24 && chance(0.03 * dt)) { kill(f, null, t); report.fryStarve++; continue; }
     if (toxicity && chance(toxicity * (young ? 2 : 1) * dt)) { kill(f, null, t); report.toxic++; continue; }
     const ageH = ageHours(f, t);
     if (ageH > f.life ? chance(0.03 * dt) : ageH > f.life * 0.9 && chance(0.002 * dt)) { kill(f, '寿命で静かに息をひきとりました。', t); continue; }
+    }
 
     // 稚魚は親に食べられる
     if (g < 0.35 && adults.length && chance(0.02 * adults.length * cover * dt)) { eaten.push(f); continue; }
@@ -841,7 +854,8 @@ function stepTank(tank, t) {
     if (isOld(f, t)) stress *= 1.5;
     if (temp < 15 || temp > 30) stress *= 1.5;
     stress *= 1 - shelter;
-    if (!f.sick) {
+    if (state.immortal) f.sick = null;
+    else if (!f.sick) {
       const ich = (0.0006 * stress * (temp < 18 ? 3 : temp >= 28 ? 0.3 : 1) + 0.003 * ichCount) * (tank.mb > 0.3 ? 0.1 : 1) * (tank.salt > 0.3 ? 0.3 : 1);
       const rot = (0.0003 * stress * (tank.nh3 > 0.25 || tank.no2 > 0.5 ? 2.5 : 1) * (temp > 24 ? 1.5 : 0.7) + 0.002 * rotCount) * (tank.gf > 0.3 ? 0.1 : 1) * (tank.salt > 0.3 ? 0.5 : 1);
       if (chance(ich * dt)) { f.sick = { type: 'ich', since: t }; addLog(`${f.name}（${tank.name}）が白点病にかかりました。体に白い点が出ています。`, t); }
@@ -985,14 +999,14 @@ function stepEggs(tank, t, dt, adultCount) {
       const protect = bedObj ? (['mop', 'hyacinth', 'hornwort'].includes(bedObj.type) ? 0.35 : 0.5) : 1;
       if (chance((0.01 * adultCount * protect + 0.001 * tank.shrimp) * dt)) { remove.add(e); eaten++; continue; }
     }
-    if ((temp < 12 || temp > 34 || tank.o2 < 1.5) && chance(0.05 * dt)) { e.status = 'white'; e.fertile = false; died++; continue; }
+    if (!state.immortal && (temp < 12 || temp > 34 || tank.o2 < 1.5) && chance(0.05 * dt)) { e.status = 'white'; e.fertile = false; died++; continue; }
     e.dd += eggRate(temp) * dt;
     if (!e.fertile || e.status === 'white') {
       if (e.status === 'ok' && e.dd > HATCH_DD * 0.08) e.status = 'white';
-      if (e.status === 'white' && e.dd > HATCH_DD * 0.25 && tank.mb < 0.2 && !e.carriedBy) { e.status = 'mold'; e.moldAge = 0; }
+      if (!state.immortal && e.status === 'white' && e.dd > HATCH_DD * 0.25 && tank.mb < 0.2 && !e.carriedBy) { e.status = 'mold'; e.moldAge = 0; }
       continue;
     }
-    if (moldBy[e.clutch] && tank.mb < 0.2 && !e.carriedBy && chance(0.02 * moldBy[e.clutch] * dt)) { e.status = 'mold'; e.moldAge = 0; e.fertile = false; moldNew++; continue; }
+    if (!state.immortal && moldBy[e.clutch] && tank.mb < 0.2 && !e.carriedBy && chance(0.02 * moldBy[e.clutch] * dt)) { e.status = 'mold'; e.moldAge = 0; e.fertile = false; moldNew++; continue; }
     if (e.dd >= HATCH_DD - 1e-6 && !e.carriedBy) {
       remove.add(e);
       if (hatched.length >= room) full++;
@@ -1486,6 +1500,8 @@ function lineageHtml(f) {
 
 function renderUI() {
   const tank = curTank(), alive = aliveIn(tank.id), t = state.gameTime;
+  const im = document.getElementById('immortalBadge');
+  im.style.display = state.immortal ? '' : 'none';
   const d = dateAt(t), sun = sunTimes(t), w = WEATHER[weather(t)];
   document.getElementById('status').innerHTML =
     `${d.getMonth() + 1}/${d.getDate()}（${WEEK[d.getDay()]}）${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}　${w.icon}${w.name}　外気温 ${outdoorTemp(t).toFixed(1)}℃　室温 ${roomTemp(t).toFixed(1)}℃<br>` +
@@ -1754,7 +1770,11 @@ function resize() {
   const dpr = dprCap;
   W = canvas.clientWidth || 800;
   const tank = curTank();
-  H = Math.max(280, Math.round(isOutdoor(tank) ? Math.min(W * 0.78, 680) : W * 0.6));
+  const fs = document.body.classList.contains('fs');
+  if (fs) { W = window.innerWidth; H = window.innerHeight; }
+  else H = Math.max(280, Math.round(isOutdoor(tank) ? Math.min(W * 0.78, 680) : W * 0.6));
+  document.getElementById('fsNote').style.display = fs && H > W ? 'block' : 'none';
+  document.getElementById('fsBtn').textContent = fs ? '✕' : '⛶';
   canvas.style.height = H + 'px';
   canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -5371,6 +5391,22 @@ $('skipBtn').onclick = () => skipHours(6);
 $('morningBtn').onclick = skipToMorning;
 $('hatchBtn').onclick = forceHatch;
 $('adultBtn').onclick = forceAdult;
+// 裏技：タイトル「メダカ飼育」を3秒以内に5回タップすると、不死モードの切り替え
+function toggleImmortal() {
+  state.immortal = !state.immortal;
+  if (state.immortal) {
+    let healed = 0;
+    for (const f of state.fish) if (!f.dead && f.sick) { f.sick = null; healed++; }
+    addLog(`✨ 裏技「不死モード」ON：メダカは死なず、病気にもならず、卵も傷みません。${healed ? `病気の${healed}匹がすぐに治りました。` : ''}`);
+  } else addLog('✨ 裏技「不死モード」OFF：ふつうの世界に戻りました。');
+  dirty = true; save();
+}
+let titleTaps = [];
+document.querySelector('h1').addEventListener('click', () => {
+  const now = performance.now(); titleTaps = titleTaps.filter(x => now - x < 3000); titleTaps.push(now);
+  if (titleTaps.length >= 5) { titleTaps = []; toggleImmortal(); }
+});
+$('immortalBadge').onclick = e => { e.stopPropagation(); toggleImmortal(); };
 $('selAllBtn').onclick = () => { selected = aliveIn(state.cur).map(f => f.id); dirty = true; };
 $('selNoneBtn').onclick = () => { selected = []; dirty = true; };
 $('resetBtn').onclick = () => {
@@ -5524,6 +5560,30 @@ canvas.addEventListener('pointerup', endDrag);
 canvas.addEventListener('pointercancel', endDrag);
 
 window.addEventListener('resize', resize);
+// ---------- 全画面（横に大きく表示）
+let fsOn = false;
+function setFS(on) {
+  fsOn = on;
+  document.body.classList.toggle('fs', on);
+  const el = document.documentElement;
+  if (on) {
+    const lock = () => { try { const p = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (p && p.catch) p.catch(() => {}); } catch (e) {} };
+    if (el.requestFullscreen) el.requestFullscreen({ navigationUI: 'hide' }).then(lock).catch(() => {});
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  } else {
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    else if (document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
+    try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); } catch (e) {}
+  }
+  resize(); setTimeout(resize, 350);
+}
+$('fsBtn').onclick = e => { e.stopPropagation(); setFS(!fsOn); };
+$('fsFeed').onclick = e => { e.stopPropagation(); feed(); };
+const onFsChange = () => { if (!document.fullscreenElement && !document.webkitFullscreenElement && fsOn) setFS(false); };
+document.addEventListener('fullscreenchange', onFsChange);
+document.addEventListener('webkitfullscreenchange', onFsChange);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && fsOn) setFS(false); });
+window.addEventListener('orientationchange', () => setTimeout(resize, 300));
 document.addEventListener('visibilitychange', save);
 window.addEventListener('beforeunload', save);
 
